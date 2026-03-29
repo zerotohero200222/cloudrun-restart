@@ -14,13 +14,14 @@ resource "google_service_account" "cb_sa" {
   display_name = "Cloud Run Restart SA"
 }
 
-# Permissions
 resource "google_project_iam_member" "run_admin" {
-  role   = "roles/run.admin"
-  member = "serviceAccount:${google_service_account.cb_sa.email}"
+  project = var.project_id   # ✅ ADD THIS
+  role    = "roles/run.admin"
+  member  = "serviceAccount:${google_service_account.cb_sa.email}"
 }
 
 resource "google_project_iam_member" "sa_user" {
-  role   = "roles/iam.serviceAccountUser"
-  member = "serviceAccount:${google_service_account.cb_sa.email}"
+  project = var.project_id   # ✅ ADD THIS
+  role    = "roles/iam.serviceAccountUser"
+  member  = "serviceAccount:${google_service_account.cb_sa.email}"
 }
