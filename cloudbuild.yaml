@@ -1,12 +1,15 @@
 steps:
-  - name: hashicorp/terraform:1.5.0
-    entrypoint: sh
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
     args:
       - -c
       - |
-        cd terraform
-        terraform init
-        terraform apply -auto-approve
+        echo "🔄 Restarting Cloud Run..."
+
+        gcloud run services update hello \
+          --region=us-central1 \
+          --update-env-vars=RESTART_TRIGGER=$(date +%s) \
+          --project=eighth-physics-489004-b2
 
 options:
-  logging: CLOUD_LOGGING_ONLY 
+  logging: CLOUD_LOGGING_ONLY
