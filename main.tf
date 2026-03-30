@@ -1,27 +1,28 @@
-# Enable required APIs
+# Enable APIs
 resource "google_project_service" "apis" {
   for_each = toset([
     "run.googleapis.com",
     "cloudbuild.googleapis.com",
-    "artifactregistry.googleapis.com"
+    "artifactregistry.googleapis.com",
+    "cloudresourcemanager.googleapis.com"
   ])
+  project = var.project_id
   service = each.key
 }
 
-# Service account for Cloud Build trigger
-resource "google_service_account" "cb_sa" {
-  account_id   = "cloudrun-restart-sa"
-  display_name = "Cloud Run Restart SA"
-}
+# Restart Cloud Run using gcloud
+resource "null_resource" "restart_cloud_run" {
 
-resource "google_project_iam_member" "run_admin" {
-  project = var.project_id   # ✅ ADD THIS
-  role    = "roles/run.admin"
-  member  = "serviceAccount:${google_service_account.cb_sa.email}"
-}
+  provisioner "local-exec" {
+    command = <<EOT
+      gcloud run services update ${var.service_name} \
+        --region=${var.region} \
+        --update-env-vars=RESTART_TRIGGER=$(date +%s) \
+        --project=${var.project_id}
+    EOT
+  }
 
-resource "google_project_iam_member" "sa_user" {
-  project = var.project_id   # ✅ ADD THIS
-  role    = "roles/iam.serviceAccountUser"
-  member  = "serviceAccount:${google_service_account.cb_sa.email}"
+  triggers = {
+    always_run = timestamp()
+  }
 }
