@@ -4,12 +4,12 @@ steps:
     args:
       - -c
       - |
-        echo "🔄 Restarting Cloud Run..."
+        echo "🔄 Restarting Cloud Run (NO IMAGE)..."
 
         gcloud run services update hello \
           --region=us-central1 \
-          --update-env-vars=RESTART_TRIGGER=$(date +%s) \
-          --project=eighth-physics-489004-b2
+          --project=eighth-physics-489004-b2 \
+          --update-env-vars=RESTART_TRIGGER=$(date +%s)
 
 options:
   logging: CLOUD_LOGGING_ONLY
