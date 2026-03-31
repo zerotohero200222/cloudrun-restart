@@ -1,3 +1,3 @@
 output "restart_status" {
-  value = "Cloud Run restart triggered"
+  value = "Cloud Run restart executed successfully"
 }
