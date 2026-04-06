@@ -4,11 +4,9 @@ steps:
     args:
       - -c
       - |
-        SERVICE_NAME="blockstats-frontend"
+        echo "🔄 Restarting Cloud Run..."
 
-        echo "🔄 Restarting $SERVICE_NAME..."
-
-        gcloud run services update $SERVICE_NAME \
+        gcloud run services update blockstats-frontend \
           --region=us-central1 \
           --project=eighth-physics-489004-b2 \
           --update-env-vars=RESTART_TRIGGER=$(date +%s)
