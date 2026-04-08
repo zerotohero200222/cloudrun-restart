@@ -6,13 +6,27 @@ steps:
       - init
       - -reconfigure
 
-  # Step 2: terraform validate — catch syntax errors early
+  # Step 2: import the existing Cloud Run service into Terraform state
+  # This tells Terraform "this resource already exists — update it, don't create it"
+  # Safe to run every time: if already in state, import is skipped gracefully via || true
+  - name: hashicorp/terraform:1.9
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        terraform import \
+          -var-file=terraform.tfvars \
+          google_cloud_run_service.service \
+          locations/${_REGION}/namespaces/${_PROJECT_ID}/services/$(grep target_service terraform.tfvars | awk -F'"' '{print $2}') \
+        || true
+
+  # Step 3: terraform validate — catch syntax errors early
   - name: hashicorp/terraform:1.9
     entrypoint: terraform
     args:
       - validate
 
-  # Step 3: terraform plan — preview what will change for the target service
+  # Step 4: terraform plan — will show "update in-place", never "create"
   - name: hashicorp/terraform:1.9
     entrypoint: terraform
     args:
@@ -20,13 +34,17 @@ steps:
       - -var-file=terraform.tfvars
       - -out=tfplan
 
-  # Step 4: terraform apply — redeploys only the target_service in terraform.tfvars
+  # Step 5: terraform apply — redeploys the target service (new revision)
   - name: hashicorp/terraform:1.9
     entrypoint: terraform
     args:
       - apply
       - -auto-approve
       - tfplan
+
+substitutions:
+  _PROJECT_ID: eighth-physics-489004-b2
+  _REGION: us-central1
 
 options:
   logging: CLOUD_LOGGING_ONLY
