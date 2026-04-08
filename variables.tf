@@ -8,7 +8,9 @@ variable "region" {
   default = "us-central1"
 }
 
-variable "service_name" {
-  type    = string
-  default = "hello"
+# The one stuck service you want to restart right now.
+# Change this value in terraform.tfvars, then trigger Cloud Build.
+variable "target_service" {
+  type        = string
+  description = "Name of the Cloud Run service to restart"
 }
