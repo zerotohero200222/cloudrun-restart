@@ -1,17 +1,32 @@
 steps:
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: bash
+  # Step 1: terraform init — connect to GCS state backend
+  - name: hashicorp/terraform:1.9
+    entrypoint: terraform
     args:
-      - -c
-      - |
-        echo "🔄 Restarting Cloud Run..."
+      - init
+      - -reconfigure
 
-        gcloud run services update blockstats-frontend \
-          --region=us-central1 \
-          --project=eighth-physics-489004-b2 \
-          --update-env-vars=RESTART_TRIGGER=$(date +%s)
+  # Step 2: terraform validate — catch syntax errors early
+  - name: hashicorp/terraform:1.9
+    entrypoint: terraform
+    args:
+      - validate
 
-        echo "✅ Restart completed"
+  # Step 3: terraform plan — preview what will change for the target service
+  - name: hashicorp/terraform:1.9
+    entrypoint: terraform
+    args:
+      - plan
+      - -var-file=terraform.tfvars
+      - -out=tfplan
+
+  # Step 4: terraform apply — redeploys only the target_service in terraform.tfvars
+  - name: hashicorp/terraform:1.9
+    entrypoint: terraform
+    args:
+      - apply
+      - -auto-approve
+      - tfplan
 
 options:
   logging: CLOUD_LOGGING_ONLY
