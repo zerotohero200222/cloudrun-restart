@@ -1,46 +1,125 @@
 steps:
-  # Step 1: terraform init — connect to GCS state backend
+
+  # ════════════════════════════════════════════════════════════════
+  # PHASE 1 — EXPORT: Snapshot all services to GCS before restart
+  # ════════════════════════════════════════════════════════════════
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        set -e
+        BUCKET="gs://eighth-physics-489004-b2-tf-state/service-exports"
+        TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        echo "=== PHASE 1: Exporting all service configs to GCS ==="
+        for SERVICE in cart hello order-service payment; do
+          echo "Exporting $SERVICE ..."
+          gcloud run services describe $SERVICE \
+            --region=us-central1 \
+            --project=eighth-physics-489004-b2 \
+            --format=json > /tmp/${SERVICE}.json
+          gsutil cp /tmp/${SERVICE}.json ${BUCKET}/${SERVICE}.json
+          echo "✅ $SERVICE → ${BUCKET}/${SERVICE}.json"
+        done
+
+  # ════════════════════════════════════════════════════════════════
+  # PHASE 2 — VERIFY: Confirm all exports exist in bucket
+  # ════════════════════════════════════════════════════════════════
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        set -e
+        BUCKET="gs://eighth-physics-489004-b2-tf-state/service-exports"
+        FAILED=0
+        echo "=== PHASE 2: Verifying exports in GCS ==="
+        for SERVICE in cart hello order-service payment; do
+          if gsutil ls ${BUCKET}/${SERVICE}.json > /dev/null 2>&1; then
+            SIZE=$(gsutil du ${BUCKET}/${SERVICE}.json | awk '{print $1}')
+            echo "✅ $SERVICE.json — ${SIZE} bytes"
+          else
+            echo "❌ MISSING: ${SERVICE}.json"
+            FAILED=1
+          fi
+        done
+        if [ $FAILED -eq 1 ]; then
+          echo "❌ Verification failed — aborting restart"
+          exit 1
+        fi
+        echo "✅ All exports verified — proceeding to restart"
+
+  # ════════════════════════════════════════════════════════════════
+  # PHASE 3 — RESTART: Redeploy target service via Terraform
+  # ════════════════════════════════════════════════════════════════
+
+  # Step 3a: terraform init
   - name: hashicorp/terraform:1.9
     entrypoint: terraform
     args:
       - init
       - -reconfigure
 
-  # Step 2: import the existing Cloud Run service into Terraform state
-  # This tells Terraform "this resource already exists — update it, don't create it"
-  # Safe to run every time: if already in state, import is skipped gracefully via || true
+  # Step 3b: Clean slate — remove stale lock AND old service from state
+  # KEY FIX: terraform state rm removes the previously managed service
+  # so when you switch from cart → order-service, Terraform does NOT
+  # destroy cart. It simply forgets cart and manages order-service fresh.
   - name: hashicorp/terraform:1.9
     entrypoint: sh
     args:
       - -c
       - |
-        terraform import \
-          -var-file=terraform.tfvars \
-          google_cloud_run_service.service \
-          locations/${_REGION}/namespaces/${_PROJECT_ID}/services/$(grep target_service terraform.tfvars | awk -F'"' '{print $2}') \
-        || true
+        TARGET=$(grep target_service terraform.tfvars | awk -F'"' '{print $2}')
+        echo "=== PHASE 3: Restarting $TARGET ==="
 
-  # Step 3: terraform validate — catch syntax errors early
+        echo "Clearing stale lock (if any)..."
+        gsutil rm -f gs://eighth-physics-489004-b2-tf-state/cloudrun-restart/default.tflock || true
+
+        echo "Removing previous service from Terraform state..."
+        terraform state rm -lock=false google_cloud_run_service.service || true
+        # ↑ || true = safe if nothing in state yet (first run)
+
+        echo "State cleared — Terraform will now update $TARGET in-place"
+
+  # Step 3c: validate
   - name: hashicorp/terraform:1.9
     entrypoint: terraform
     args:
       - validate
 
-  # Step 4: terraform plan — will show "update in-place", never "create"
+  # Step 3d: plan — should show ONLY "~ update in-place", never destroy
   - name: hashicorp/terraform:1.9
     entrypoint: terraform
     args:
       - plan
+      - -lock=false
       - -var-file=terraform.tfvars
       - -out=tfplan
 
-  # Step 5: terraform apply — redeploys the target service (new revision)
+  # Step 3e: apply — new RESTART_TIMESTAMP → new Cloud Run revision
   - name: hashicorp/terraform:1.9
     entrypoint: terraform
     args:
       - apply
+      - -lock=false
       - -auto-approve
       - tfplan
+
+  # ════════════════════════════════════════════════════════════════
+  # PHASE 4 — CONFIRM: Print the new revision name and URL
+  # ════════════════════════════════════════════════════════════════
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        TARGET=$(grep target_service terraform.tfvars | awk -F'"' '{print $2}')
+        echo "=== PHASE 4: Confirming restart of $TARGET ==="
+        gcloud run services describe $TARGET \
+          --region=us-central1 \
+          --project=eighth-physics-489004-b2 \
+          --format="table(status.latestReadyRevisionName, status.url)"
+        echo "✅ Restart complete: $TARGET"
 
 substitutions:
   _PROJECT_ID: eighth-physics-489004-b2
