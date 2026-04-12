@@ -1,95 +1,23 @@
 steps:
-
-  # ════════════════════════════════════════════════════════════════
-  # PHASE 1 — VERIFY: Check service exports already exist in GCS
-  # Export is done manually from Cloud Shell before triggering this.
-  # This step just confirms they are present before proceeding.
-  # Service names are NOT hardcoded here — read from the bucket.
-  # ════════════════════════════════════════════════════════════════
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: sh
+    entrypoint: bash
     args:
       - -c
       - |
-        set -e
-        BUCKET="gs://eighth-physics-489004-b2-tf-state/service-exports"
-        TARGET=$$(grep target_service terraform.tfvars | awk -F'"' '{print $$2}')
-        echo "=== PHASE 1: Verifying GCS exports ==="
-        echo "Target service to restart: $$TARGET"
-        echo ""
-        echo "Checking exports in bucket..."
-        FILES=$$(gsutil ls $$BUCKET/ 2>/dev/null || echo "")
-        if [ -z "$$FILES" ]; then
-          echo "❌ No exports found in $$BUCKET"
-          echo "   Run the manual export from Cloud Shell first:"
-          echo "   for SERVICE in <your services>; do"
-          echo "     gcloud run services describe \$$SERVICE --format=json > /tmp/\$$SERVICE.json"
-          echo "     gsutil cp /tmp/\$$SERVICE.json $$BUCKET/\$$SERVICE.json"
-          echo "   done"
-          exit 1
-        fi
-        echo "✅ Exports found in bucket:"
-        gsutil ls -l $$BUCKET/
-        echo ""
-        echo "✅ Verification passed — proceeding to restart $$TARGET"
+        TARGET=$(grep target_service terraform.tfvars | awk -F'"' '{print $2}')
+        echo "Restarting Cloud Run service: $TARGET"
 
-  # ════════════════════════════════════════════════════════════════
-  # PHASE 2 — RESTART: Redeploy target service via Terraform
-  # Uses LOCAL state (no GCS backend) so every run is fresh:
-  #   - No stale lock issues
-  #   - No destroy+create from name mismatch
-  #   - No import needed
-  # Terraform calls GCP API → service already exists → UPDATE in-place
-  # ════════════════════════════════════════════════════════════════
-
-  # Step 2a: terraform init — local state, no backend
-  - name: hashicorp/terraform:1.9
-    entrypoint: terraform
-    args:
-      - init
-      - -reconfigure
-
-  # Step 2b: terraform validate
-  - name: hashicorp/terraform:1.9
-    entrypoint: terraform
-    args:
-      - validate
-
-  # Step 2c: terraform plan
-  - name: hashicorp/terraform:1.9
-    entrypoint: sh
-    args:
-      - -c
-      - |
-        TARGET=$$(grep target_service terraform.tfvars | awk -F'"' '{print $$2}')
-        echo "=== PHASE 2: Restarting $$TARGET ==="
-        terraform plan \
-          -var-file=terraform.tfvars \
-          -out=tfplan
-
-  # Step 2d: terraform apply — new RESTART_TIMESTAMP → new revision
-  - name: hashicorp/terraform:1.9
-    entrypoint: terraform
-    args:
-      - apply
-      - -auto-approve
-      - tfplan
-
-  # ════════════════════════════════════════════════════════════════
-  # PHASE 3 — CONFIRM: Show new revision and URL
-  # ════════════════════════════════════════════════════════════════
-  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: sh
-    args:
-      - -c
-      - |
-        TARGET=$$(grep target_service terraform.tfvars | awk -F'"' '{print $$2}')
-        echo "=== PHASE 3: Confirming restart of $$TARGET ==="
-        gcloud run services describe $$TARGET \
+        gcloud run services update $TARGET \
           --region=us-central1 \
           --project=eighth-physics-489004-b2 \
-          --format="table(status.latestReadyRevisionName, status.url)"
-        echo "✅ Restart complete: $$TARGET"
+          --update-env-vars=RESTART_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+        echo "Restart complete. New revision:"
+        gcloud run services describe $TARGET \
+          --region=us-central1 \
+          --project=eighth-physics-489004-b2 \
+          --format="value(status.latestReadyRevisionName)"
 
 options:
   logging: CLOUD_LOGGING_ONLY
+
