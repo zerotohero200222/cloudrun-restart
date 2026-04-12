@@ -1,1 +1,1 @@
-target_service = "cart"
+target_service = "product"
