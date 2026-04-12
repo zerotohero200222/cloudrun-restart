@@ -2,6 +2,7 @@ steps:
 
   # ════════════════════════════════════════════════════════════════
   # PHASE 1 — EXPORT: Snapshot all services to GCS before restart
+  # NOTE: $$ means shell variable, $ means Cloud Build substitution
   # ════════════════════════════════════════════════════════════════
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: sh
@@ -10,16 +11,15 @@ steps:
       - |
         set -e
         BUCKET="gs://eighth-physics-489004-b2-tf-state/service-exports"
-        TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         echo "=== PHASE 1: Exporting all service configs to GCS ==="
         for SERVICE in cart hello order-service payment; do
-          echo "Exporting $SERVICE ..."
-          gcloud run services describe $SERVICE \
+          echo "Exporting $$SERVICE ..."
+          gcloud run services describe $$SERVICE \
             --region=us-central1 \
             --project=eighth-physics-489004-b2 \
-            --format=json > /tmp/${SERVICE}.json
-          gsutil cp /tmp/${SERVICE}.json ${BUCKET}/${SERVICE}.json
-          echo "✅ $SERVICE → ${BUCKET}/${SERVICE}.json"
+            --format=json > /tmp/$${SERVICE}.json
+          gsutil cp /tmp/$${SERVICE}.json $${BUCKET}/$${SERVICE}.json
+          echo "✅ $$SERVICE exported"
         done
 
   # ════════════════════════════════════════════════════════════════
@@ -35,15 +35,15 @@ steps:
         FAILED=0
         echo "=== PHASE 2: Verifying exports in GCS ==="
         for SERVICE in cart hello order-service payment; do
-          if gsutil ls ${BUCKET}/${SERVICE}.json > /dev/null 2>&1; then
-            SIZE=$(gsutil du ${BUCKET}/${SERVICE}.json | awk '{print $1}')
-            echo "✅ $SERVICE.json — ${SIZE} bytes"
+          if gsutil ls $${BUCKET}/$${SERVICE}.json > /dev/null 2>&1; then
+            SIZE=$$(gsutil du $${BUCKET}/$${SERVICE}.json | awk '{print $$1}')
+            echo "✅ $${SERVICE}.json — $${SIZE} bytes"
           else
-            echo "❌ MISSING: ${SERVICE}.json"
+            echo "❌ MISSING: $${SERVICE}.json"
             FAILED=1
           fi
         done
-        if [ $FAILED -eq 1 ]; then
+        if [ $$FAILED -eq 1 ]; then
           echo "❌ Verification failed — aborting restart"
           exit 1
         fi
@@ -60,26 +60,20 @@ steps:
       - init
       - -reconfigure
 
-  # Step 3b: Clean slate — remove stale lock AND old service from state
-  # KEY FIX: terraform state rm removes the previously managed service
-  # so when you switch from cart → order-service, Terraform does NOT
-  # destroy cart. It simply forgets cart and manages order-service fresh.
+  # Step 3b: Clear stale lock + remove old service from state
+  # terraform state rm prevents destroy+create when switching services
   - name: hashicorp/terraform:1.9
     entrypoint: sh
     args:
       - -c
       - |
-        TARGET=$(grep target_service terraform.tfvars | awk -F'"' '{print $2}')
-        echo "=== PHASE 3: Restarting $TARGET ==="
-
+        TARGET=$$(grep target_service terraform.tfvars | awk -F'"' '{print $$2}')
+        echo "=== PHASE 3: Restarting $$TARGET ==="
         echo "Clearing stale lock (if any)..."
         gsutil rm -f gs://eighth-physics-489004-b2-tf-state/cloudrun-restart/default.tflock || true
-
         echo "Removing previous service from Terraform state..."
         terraform state rm -lock=false google_cloud_run_service.service || true
-        # ↑ || true = safe if nothing in state yet (first run)
-
-        echo "State cleared — Terraform will now update $TARGET in-place"
+        echo "State cleared — Terraform will update $$TARGET in-place"
 
   # Step 3c: validate
   - name: hashicorp/terraform:1.9
@@ -87,7 +81,7 @@ steps:
     args:
       - validate
 
-  # Step 3d: plan — should show ONLY "~ update in-place", never destroy
+  # Step 3d: plan — shows "~ update in-place", never destroy
   - name: hashicorp/terraform:1.9
     entrypoint: terraform
     args:
@@ -106,24 +100,20 @@ steps:
       - tfplan
 
   # ════════════════════════════════════════════════════════════════
-  # PHASE 4 — CONFIRM: Print the new revision name and URL
+  # PHASE 4 — CONFIRM: Print new revision name and URL
   # ════════════════════════════════════════════════════════════════
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: sh
     args:
       - -c
       - |
-        TARGET=$(grep target_service terraform.tfvars | awk -F'"' '{print $2}')
-        echo "=== PHASE 4: Confirming restart of $TARGET ==="
-        gcloud run services describe $TARGET \
+        TARGET=$$(grep target_service terraform.tfvars | awk -F'"' '{print $$2}')
+        echo "=== PHASE 4: Confirming restart of $$TARGET ==="
+        gcloud run services describe $$TARGET \
           --region=us-central1 \
           --project=eighth-physics-489004-b2 \
           --format="table(status.latestReadyRevisionName, status.url)"
-        echo "✅ Restart complete: $TARGET"
-
-substitutions:
-  _PROJECT_ID: eighth-physics-489004-b2
-  _REGION: us-central1
+        echo "✅ Restart complete: $$TARGET"
 
 options:
   logging: CLOUD_LOGGING_ONLY
