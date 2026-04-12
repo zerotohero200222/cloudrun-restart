@@ -1,8 +1,8 @@
 terraform {
-  backend "gcs" {
-    bucket = "eighth-physics-489004-b2-tf-state"
-    prefix = "cloudrun-restart"
-  }
+  # No GCS backend — local state only.
+  # Each Cloud Build run starts fresh with no state memory,
+  # so there is no stale lock, no destroy+create, no import needed.
+  # Terraform simply calls the GCP API to update the existing service.
 
   required_providers {
     google = {
