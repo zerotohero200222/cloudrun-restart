@@ -4,16 +4,16 @@ steps:
     args:
       - -c
       - |
-        TARGET=$(grep target_service terraform.tfvars | awk -F'"' '{print $2}')
-        echo "Restarting Cloud Run service: $TARGET"
+        TARGET=$$(grep target_service terraform.tfvars | awk -F'"' '{print $$2}')
+        echo "Restarting Cloud Run service: $$TARGET"
 
-        gcloud run services update $TARGET \
+        gcloud run services update $$TARGET \
           --region=us-central1 \
           --project=eighth-physics-489004-b2 \
-          --update-env-vars=RESTART_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          --update-env-vars=RESTART_TIMESTAMP=$$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
         echo "Restart complete. New revision:"
-        gcloud run services describe $TARGET \
+        gcloud run services describe $$TARGET \
           --region=us-central1 \
           --project=eighth-physics-489004-b2 \
           --format="value(status.latestReadyRevisionName)"
