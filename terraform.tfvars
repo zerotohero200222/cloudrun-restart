@@ -4,4 +4,4 @@ region     = "us-central1"
 # ─────────────────────────────────────────────────────────────────
 # ONLY change this when a service is stuck — then trigger Cloud Build
 # ─────────────────────────────────────────────────────────────────
-target_service = "order-service"
+target_service = "cart"
